@@ -20,7 +20,7 @@ let currentlyHighlighted: HTMLElement[] = [];
 let currentResultIndex = 0;
 let currentRecommendedBlocks: any[][] = [];
 
-function clearHighlights() {
+function clearHighlights(resetFlag = false) {
     currentlyHighlighted.forEach(el => {
         el.style.border = "";
         el.style.boxShadow = "";
@@ -31,7 +31,9 @@ function clearHighlights() {
         el.title = "";
     });
     currentlyHighlighted = [];
-    highlighted = false;
+    if (resetFlag) {
+        highlighted = false;
+    }
 }
 
 function getScreenType(): string {
@@ -376,7 +378,15 @@ function updateResultUI(direction = 1) {
 }
 
 function addToggleUI(screenType: string, isSupported: boolean) {
-    if (document.getElementById("seatsense-widget")) return;
+    const existingWidget = document.getElementById("seatsense-widget");
+    if (existingWidget) {
+        if (isSupported && !document.getElementById("seatsense-result-content")) {
+            // Upgrade from unsupported to supported
+            existingWidget.remove();
+        } else {
+            return;
+        }
+    }
 
     console.log("SeatSense: Injecting toggle UI into page");
     injectStyles();
@@ -409,7 +419,7 @@ function addToggleUI(screenType: string, isSupported: boolean) {
                 ${screenTypeLogo}
                 <button id="seatsense-minimize-btn" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: color 0.2s;" onmouseover="this.style.color='#ffffff'" onmouseout="this.style.color='#9ca3af'">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"></polyline>
+                        <polyline points="18 15 12 9 6 15"></polyline>
                     </svg>
                 </button>
             </div>
@@ -418,10 +428,10 @@ function addToggleUI(screenType: string, isSupported: boolean) {
     container.appendChild(header);
 
     const body = document.createElement("div");
-    body.className = "seatsense-body";
+    body.className = "seatsense-body minimized";
     
     const minimizeBtn = header.querySelector("#seatsense-minimize-btn");
-    let isMinimized = false;
+    let isMinimized = true;
     minimizeBtn?.addEventListener("click", () => {
         isMinimized = !isMinimized;
         body.classList.toggle("minimized", isMinimized);
@@ -461,7 +471,7 @@ function addToggleUI(screenType: string, isSupported: boolean) {
             grid.querySelectorAll(".seatsense-card").forEach(c => c.classList.remove("active"));
             card.classList.add("active");
 
-            clearHighlights();
+            clearHighlights(true);
             highlightSeats();
             updateResultUI();
         };
@@ -499,7 +509,7 @@ function addToggleUI(screenType: string, isSupported: boolean) {
         if (newVal < 1 || newVal > 10) return;
         currentTicketCount = newVal;
         document.getElementById("seatsense-ticket-count-text")!.innerText = `${currentTicketCount} Ticket${currentTicketCount > 1 ? 's' : ''}`;
-        clearHighlights();
+        clearHighlights(true);
         highlightSeats();
         updateResultUI();
     };
@@ -573,19 +583,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Observe DOM for changes to catch dynamically loaded seats
+let debounceTimer: any = null;
 const observer = new MutationObserver(() => {
     const hasSeats = document.querySelector(".seats-row");
 
     if (hasSeats) {
         if (!highlighted) {
-            highlightSeats();
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                if (document.querySelector(".seats-col span[id]")) {
+                    highlightSeats();
+                }
+            }, 300);
         }
     } else {
         // Remove UI if seat arrangement is not on screen (e.g. user is on timings page)
         const container = document.getElementById("seatsense-widget");
         if (container) {
             container.remove();
-            clearHighlights();
+            clearHighlights(true);
         }
     }
 });
@@ -596,7 +612,7 @@ let lastUrl = location.href;
 new MutationObserver(() => {
     if (location.href !== lastUrl) {
         lastUrl = location.href;
-        clearHighlights();
+        clearHighlights(true);
         const container = document.getElementById("seatsense-widget");
         if (container) container.remove();
         topRecommendations = []; // clear old recommendations
