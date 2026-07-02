@@ -1,6 +1,24 @@
 import type { PlasmoCSConfig } from "plasmo";
 import { PVRParser } from "./parsers/pvrParser";
-import { recommendSeats, PROFILES, STANDARD_PROFILE } from "./recommenders/BaseRecommender";
+import { RecommendationController } from "./controllers/RecommendationController";
+import type { RecommendationMode, ScreenType } from "./types/recommendation";
+
+const UI_MODE_MAP: Record<string, RecommendationMode> = {
+    "Max Immersion": "IMMERSION",
+    "Best Audio": "AUDIO",
+    "Max Comfort": "COMFORT",
+    "Headache Relief": "HEADACHE"
+};
+
+function resolveScreenType(text: string): ScreenType {
+    const typeUpper = text.toUpperCase();
+    if (typeUpper.includes("IMAX")) return "IMAX";
+    if (typeUpper.includes("SCREENX")) return "SCREENX";
+    if (typeUpper.includes("MX4D")) return "MX4DX";
+    if (typeUpper.includes("4DX")) return "4DX";
+    if (typeUpper.includes("3D")) return "3D";
+    return "2D";
+}
 import iconBase64 from "data-base64:../assets/icon.png";
 import imaxBase64 from "data-base64:../assets/imax.png";
 import logo4dxBase64 from "data-base64:../assets/4dx.png";
@@ -19,6 +37,8 @@ let currentTicketCount = 1;
 let currentlyHighlighted: HTMLElement[] = [];
 let activeProfileName = "Max Immersion";
 let currentRecommendationIndex = 0;
+
+const recommendationController = new RecommendationController();
 
 const MODE_COLORS: Record<string, string> = {
     "Max Comfort": "#22c55e",      // Green
@@ -422,7 +442,7 @@ function addToggleUI(screenType: string, isSupported: boolean) {
     const grid = document.createElement("div");
     grid.className = "seatsense-grid";
 
-    Object.keys(PROFILES).forEach(p => {
+    Object.keys(UI_MODE_MAP).forEach(p => {
         const color = MODE_COLORS[p] || "#ffffff";
         const isActive = p === activeProfileName;
         const card = document.createElement("div");
@@ -538,10 +558,13 @@ function updateResults(direction: 'left' | 'right' | 'none' = 'none') {
         return;
     }
 
-    const profile = PROFILES[activeProfileName];
-    if (!profile) return;
+    const mode = UI_MODE_MAP[activeProfileName];
+    if (!mode) return;
+    
+    const screenType = resolveScreenType(getScreenType());
 
-    const blocks = recommendSeats(availableSeats, profile, currentTicketCount).slice(0, 3);
+    const recs = recommendationController.getRecommendations(availableSeats, screenType, mode, currentTicketCount).slice(0, 3);
+    const blocks = recs.map(r => r.seats);
     if (blocks.length === 0) {
         resultsContainer.innerHTML = "";
         return;
@@ -661,10 +684,13 @@ function highlightSeats() {
     // Track all recommendations so we can handle overlaps
     // seat element -> array of recommendation reasons
     const seatRecs = new Map<HTMLElement, { mode: string, rank: number, color: string }[]>();
+    
+    const resolvedScreenType = resolveScreenType(screenType);
 
-    Object.keys(PROFILES).forEach(profileName => {
-        const profile = PROFILES[profileName];
-        const blocks = recommendSeats(availableSeats, profile, currentTicketCount).slice(0, 3);
+    Object.keys(UI_MODE_MAP).forEach(profileName => {
+        const mode = UI_MODE_MAP[profileName];
+        const recs = recommendationController.getRecommendations(availableSeats, resolvedScreenType, mode, currentTicketCount).slice(0, 3);
+        const blocks = recs.map(r => r.seats);
         const color = MODE_COLORS[profileName] || "#ffffff";
         
         if (currentRecommendationIndex < blocks.length) {

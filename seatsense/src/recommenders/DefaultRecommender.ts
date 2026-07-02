@@ -1,25 +1,13 @@
 import type { Seat } from '../models/Seat';
-import { AuditoriumProfile } from './AuditoriumProfile';
+import type { RecommendationProfile } from '../config/profileBuilder';
+import type { AuditoriumLayout } from '../layout/AuditoriumLayout';
+import type { Recommendation } from '../models/Recommendation';
 
-export const PROFILES: Record<string, AuditoriumProfile> = {
-    "Best Audio": { name: "Best Audio", idealDepthRatio: 0.66, horizontalPreference: "center" },
-    "Max Immersion": { name: "Max Immersion", idealDepthRatio: 0.55, horizontalPreference: "center" },
-    "Max Comfort": { name: "Max Comfort", idealDepthRatio: 0.67, horizontalPreference: "center" },
-    "Headache Relief": { name: "Headache Relief", idealDepthRatio: 0.85, horizontalPreference: "center" }
-};
-
-export const STANDARD_PROFILE: AuditoriumProfile = PROFILES["Best Audio"];
-
-export function recommendSeats(seats: Seat[], profile: AuditoriumProfile = STANDARD_PROFILE, ticketCount: number = 1): Seat[][] {
+export function recommendSeats(seats: Seat[], layout: AuditoriumLayout, profile: RecommendationProfile, ticketCount: number = 1): Recommendation[] {
     if (seats.length === 0) return [];
 
-    const rowIndices = seats.map(s => Number(s.rowIndex));
-    const minRow = Math.min(...rowIndices);
-    const maxRow = Math.max(...rowIndices);
-    const totalDepth = maxRow - minRow;
-    
     // Ideal row index based on the profile's depth ratio (distance from screen)
-    const idealRowIndex = minRow + (totalDepth * profile.idealDepthRatio);
+    const idealRowIndex = layout.minRow + (layout.totalRows * profile.depthRatio);
 
     // Group seats by row
     const rowMap = new Map<number, Seat[]>();
@@ -31,21 +19,24 @@ export function recommendSeats(seats: Seat[], profile: AuditoriumProfile = STAND
         rowMap.get(rIndex)!.push(seat);
     });
 
-    const scoredBlocks: { block: Seat[], score: number }[] = [];
+    const recommendations: Recommendation[] = [];
 
     // Calculate score for each seat block
     rowMap.forEach((seatsInRow, rIndex) => {
         // Sort seats in row by column number to find contiguous blocks
         seatsInRow.sort((a, b) => Number(a.colNumber) - Number(b.colNumber));
         
-        const colIndices = seatsInRow.map(s => Number(s.colNumber));
-        const minCol = Math.min(...colIndices);
-        const maxCol = Math.max(...colIndices);
+        const rowGeom = layout.rowGeometry.get(rIndex);
+        if (!rowGeom) return; // Should not happen, but safeguard
         
-        let targetCol = (minCol + maxCol) / 2; // Default to center
+        const minCol = rowGeom.minColumn;
+        const maxCol = rowGeom.maxColumn;
+        
+        // Use horizontalRatio to determine the target column position
+        const targetCol = minCol + (maxCol - minCol) * profile.horizontalRatio;
         
         const rowDistance = Math.abs(rIndex - idealRowIndex);
-        const maxRowDistance = Math.max(Math.abs(maxRow - idealRowIndex), Math.abs(minRow - idealRowIndex)) || 1;
+        const maxRowDistance = Math.max(Math.abs(layout.maxRow - idealRowIndex), Math.abs(layout.minRow - idealRowIndex)) || 1;
         const rowPenalty = rowDistance / maxRowDistance;
 
         // Find contiguous blocks of length ticketCount
@@ -64,16 +55,21 @@ export function recommendSeats(seats: Seat[], profile: AuditoriumProfile = STAND
                 const avgColPenalty = totalColPenalty / ticketCount;
                 
                 // Score out of 100 where higher is better (closer to ideal position)
-                // High weighting for column proximity to prioritize center seats over ideal rows
-                const score = 100 - ((rowPenalty * 15) + (avgColPenalty * 85));
+                // Weights from the configuration profile
+                const score = 100 - ((rowPenalty * profile.rowWeight * 100) + (avgColPenalty * profile.columnWeight * 100));
                 
                 block.forEach(seat => seat.score = score);
-                scoredBlocks.push({ block, score });
+                recommendations.push({
+                    seats: block,
+                    score,
+                    distance: rowDistance,
+                    explanation: []
+                });
             }
         }
     });
 
     // Return blocks sorted by score descending
-    scoredBlocks.sort((a, b) => b.score - a.score);
-    return scoredBlocks.map(sb => sb.block);
+    recommendations.sort((a, b) => b.score - a.score);
+    return recommendations;
 }

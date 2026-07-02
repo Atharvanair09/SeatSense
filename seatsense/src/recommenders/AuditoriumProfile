@@ -1,5 +1,0 @@
-export interface AuditoriumProfile {
-    name: string;
-    idealDepthRatio: number;
-    horizontalPreference: "center";
-}
