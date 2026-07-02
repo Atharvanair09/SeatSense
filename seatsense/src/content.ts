@@ -59,6 +59,7 @@ function clearHighlights(resetFlag = false) {
     currentlyHighlighted.forEach(el => {
         el.style.border = "";
         el.style.boxShadow = "";
+        el.style.background = "";
         el.style.backgroundColor = "";
         el.style.color = "";
         el.style.zIndex = "";
@@ -344,7 +345,7 @@ function injectStyles() {
 function addToggleUI(screenType: string, isSupported: boolean) {
     const existingWidget = document.getElementById("seatsense-widget");
     if (existingWidget) {
-        if (isSupported && !document.getElementById("seatsense-result-content")) {
+        if (isSupported && !document.getElementById("seatsense-results-container")) {
             // Upgrade from unsupported to supported
             existingWidget.remove();
         } else {
@@ -461,6 +462,8 @@ function addToggleUI(screenType: string, isSupported: boolean) {
             });
             
             updateResults();
+            clearHighlights(true);
+            highlightSeats();
         };
         grid.appendChild(card);
     });
@@ -622,6 +625,8 @@ function updateResults(direction: 'left' | 'right' | 'none' = 'none') {
                     currentRecommendationIndex = (currentRecommendationIndex + 1) % blocks.length;
                     updateResults('right');
                 }
+                clearHighlights(true);
+                highlightSeats();
             };
             return btn;
         };
@@ -662,7 +667,8 @@ function highlightSeats() {
         const blocks = recommendSeats(availableSeats, profile, currentTicketCount).slice(0, 3);
         const color = MODE_COLORS[profileName] || "#ffffff";
         
-        blocks.forEach((block, index) => {
+        if (currentRecommendationIndex < blocks.length) {
+            const block = blocks[currentRecommendationIndex];
             block.forEach(seat => {
                 if (seat.element) {
                     if (!seatRecs.has(seat.element)) {
@@ -670,23 +676,32 @@ function highlightSeats() {
                     }
                     seatRecs.get(seat.element)!.push({
                         mode: profileName,
-                        rank: index + 1,
+                        rank: currentRecommendationIndex + 1,
                         color: color
                     });
                 }
             });
-        });
+        }
     });
 
     // Apply styles to all recommended seats
     seatRecs.forEach((recs, element) => {
-        // If a seat satisfies multiple modes, we just use the first mode's color for the background
-        // The tooltip will show all of them.
-        const primaryColor = recs[0].color;
+        const uniqueColors = Array.from(new Set(recs.map(r => r.color)));
+        let background = uniqueColors[0];
+        let borderColor = uniqueColors[0];
         
-        element.style.backgroundColor = primaryColor;
+        if (uniqueColors.length > 1) {
+            const step = 100 / uniqueColors.length;
+            const parts = uniqueColors.map((color, i) => {
+                return `${color} ${i * step}% ${(i + 1) * step}%`;
+            });
+            background = `linear-gradient(135deg, ${parts.join(', ')})`;
+            borderColor = '#ffffff';
+        }
+        
+        element.style.background = background;
         element.style.color = "white";
-        element.style.border = `2px solid ${primaryColor}`;
+        element.style.border = `2px solid ${borderColor}`;
         element.style.boxShadow = "none";
         element.style.zIndex = "10";
         element.style.position = "relative";
