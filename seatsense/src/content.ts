@@ -11,14 +11,49 @@ export const config: PlasmoCSConfig = {
     matches: ["https://www.pvrcinemas.com/seatlayout/*"]
 };
 
+
 // Store the top recommendations here so we can reply to the popup
 let topRecommendations: any[] = [];
 let highlighted = false;
-let currentProfile = PROFILES["Best Audio"];
 let currentTicketCount = 1;
 let currentlyHighlighted: HTMLElement[] = [];
-let currentResultIndex = 0;
-let currentRecommendedBlocks: any[][] = [];
+let activeProfileName = "Max Immersion";
+let currentRecommendationIndex = 0;
+
+const MODE_COLORS: Record<string, string> = {
+    "Max Comfort": "#22c55e",      // Green
+    "Best Audio": "#3b82f6",   // Blue
+    "Max Immersion": "#a855f7",// Purple
+    "Headache Relief": "#f97316"// Orange
+};
+
+
+
+let tooltipEl: HTMLElement | null = null;
+
+function showTooltip(e: MouseEvent) {
+    if (!tooltipEl) {
+        tooltipEl = document.createElement("div");
+        tooltipEl.id = "seatsense-tooltip";
+        document.body.appendChild(tooltipEl);
+    }
+    const target = e.currentTarget as HTMLElement;
+    const text = target.getAttribute("data-seatsense-tooltip");
+    if (text) {
+        tooltipEl.innerHTML = text;
+        tooltipEl.style.display = "block";
+        const rect = target.getBoundingClientRect();
+        // position above the seat
+        tooltipEl.style.left = `${rect.left + window.scrollX + rect.width / 2}px`;
+        tooltipEl.style.top = `${rect.top + window.scrollY - 10}px`;
+    }
+}
+
+function hideTooltip() {
+    if (tooltipEl) {
+        tooltipEl.style.display = "none";
+    }
+}
 
 function clearHighlights(resetFlag = false) {
     currentlyHighlighted.forEach(el => {
@@ -29,6 +64,9 @@ function clearHighlights(resetFlag = false) {
         el.style.zIndex = "";
         el.style.position = "";
         el.title = "";
+        el.removeAttribute("data-seatsense-tooltip");
+        el.removeEventListener("mouseenter", showTooltip);
+        el.removeEventListener("mouseleave", hideTooltip);
     });
     currentlyHighlighted = [];
     if (resetFlag) {
@@ -281,100 +319,26 @@ function injectStyles() {
         .seatsense-slide-left {
             animation: seatsenseSlideLeft 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
         }
+
+        #seatsense-tooltip {
+            position: absolute;
+            background: #17191f;
+            color: #ffffff;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: 'Inter', -apple-system, sans-serif;
+            pointer-events: none;
+            z-index: 2147483647;
+            transform: translate(-50%, -100%);
+            white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            border: 1px solid #23252a;
+            display: none;
+            line-height: 1.5;
+        }
     `;
     document.head.appendChild(style);
-}
-
-function updateResultUI(direction = 1) {
-    const resultEl = document.getElementById("seatsense-result-content");
-    if (!resultEl) return;
-
-    if (topRecommendations.length === 0) {
-        resultEl.innerHTML = `<p style="color: #6b7280; font-size: 13px;">No seats available.</p>`;
-        return;
-    }
-
-    const bestBlock = topRecommendations[currentResultIndex];
-    if (!bestBlock || bestBlock.length === 0) return;
-    const firstSeat = bestBlock[0];
-    const lastSeat = bestBlock[bestBlock.length - 1];
-
-    const seatText = bestBlock.length > 1
-        ? `Seats ${firstSeat.seatNumber}-${lastSeat.seatNumber}`
-        : `Seat ${firstSeat.seatNumber}`;
-
-    const scoreVal = bestBlock[0].score || 0;
-    const progressWidth = Math.min(100, Math.max(0, scoreVal));
-    const badgeText = currentResultIndex === 0 ? "1st Best" : currentResultIndex === 1 ? "2nd Best" : "3rd Best";
-    const animClass = direction === 1 ? "seatsense-slide-right" : "seatsense-slide-left";
-
-    // Update seating chart highlight to match active index
-    clearHighlights();
-    const currentBlockElements = currentRecommendedBlocks[currentResultIndex];
-    if (currentBlockElements) {
-        const color = currentResultIndex === 0 ? "red" : currentResultIndex === 1 ? "orange" : "green";
-        currentBlockElements.forEach((seat: any) => {
-            if (seat.element) {
-                seat.element.style.backgroundColor = color;
-                seat.element.style.color = "white";
-                seat.element.style.border = `2px solid ${color}`;
-                seat.element.style.boxShadow = "none";
-                seat.element.style.zIndex = "10";
-                seat.element.style.position = "relative";
-                seat.element.title = `Recommended (Rank ${currentResultIndex + 1}) - Score: ${Number(seat.score).toFixed(1)}`;
-                currentlyHighlighted.push(seat.element);
-            }
-        });
-    }
-
-    resultEl.innerHTML = `
-        <div class="${animClass}">
-            <div class="seatsense-result-header">
-                <div class="seatsense-result-seats">
-                    <h3>Row ${firstSeat.row}</h3>
-                    <p>${seatText}</p>
-                </div>
-                <div class="seatsense-result-score">
-                    <span class="seatsense-score-badge">${badgeText}</span>
-                    <div class="seatsense-score-value">${Math.round(scoreVal)}%</div>
-                    <div class="seatsense-score-label">Confidence Match</div>
-                </div>
-            </div>
-            <div class="seatsense-progress-bg" style="margin-bottom: 12px;">
-                <div class="seatsense-progress-fill" style="width: ${progressWidth}%"></div>
-            </div>
-        </div>
-        <div class="seatsense-result-nav" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #23252a; padding-top: 12px;">
-            <button id="seatsense-prev-btn" style="background: none; border: none; color: ${currentResultIndex > 0 ? '#8fa6ff' : '#4b5563'}; cursor: ${currentResultIndex > 0 ? 'pointer' : 'default'}; display: flex; align-items: center; gap: 4px; font-size: 11px;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg> Previous
-            </button>
-            <span style="font-size: 11px; color: #9ca3af;">${currentResultIndex + 1} of ${topRecommendations.length}</span>
-            <button id="seatsense-next-btn" style="background: none; border: none; color: ${currentResultIndex < topRecommendations.length - 1 ? '#8fa6ff' : '#4b5563'}; cursor: ${currentResultIndex < topRecommendations.length - 1 ? 'pointer' : 'default'}; display: flex; align-items: center; gap: 4px; font-size: 11px;">
-                Next <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
-            </button>
-        </div>
-    `;
-
-    const prevBtn = document.getElementById("seatsense-prev-btn");
-    const nextBtn = document.getElementById("seatsense-next-btn");
-    
-    if (prevBtn) {
-        prevBtn.onclick = () => {
-            if (currentResultIndex > 0) {
-                currentResultIndex--;
-                updateResultUI(-1);
-            }
-        };
-    }
-    
-    if (nextBtn) {
-        nextBtn.onclick = () => {
-            if (currentResultIndex < topRecommendations.length - 1) {
-                currentResultIndex++;
-                updateResultUI(1);
-            }
-        };
-    }
 }
 
 function addToggleUI(screenType: string, isSupported: boolean) {
@@ -447,33 +411,56 @@ function addToggleUI(screenType: string, isSupported: boolean) {
         return;
     }
 
-    // Recommendation Mode Grid
+    // Recommendation Mode Legend
     const modeSection = document.createElement("div");
     const modeTitle = document.createElement("div");
     modeTitle.className = "seatsense-section-title";
-    modeTitle.innerText = "RECOMMENDATION MODE";
+    modeTitle.innerText = "RECOMMENDATION LEGEND";
     modeSection.appendChild(modeTitle);
 
     const grid = document.createElement("div");
     grid.className = "seatsense-grid";
 
     Object.keys(PROFILES).forEach(p => {
+        const color = MODE_COLORS[p] || "#ffffff";
+        const isActive = p === activeProfileName;
         const card = document.createElement("div");
-        card.className = "seatsense-card" + (currentProfile.name === p ? " active" : "");
+        card.className = "seatsense-card" + (isActive ? " active" : "");
+        card.dataset.profile = p;
+        card.style.cursor = "pointer";
+        card.style.borderColor = isActive ? color : `${color}40`;
+        
+        // Add a subtle background tint
+        card.style.backgroundColor = `${color}10`;
+        
         card.innerHTML = `
-            <div class="seatsense-card-icon">${getIconForProfile(p)}</div>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div class="seatsense-card-icon" style="color: ${color}">${getIconForProfile(p)}</div>
+                <div style="width: 10px; height: 10px; border-radius: 50%; background-color: ${color}; box-shadow: 0 0 8px ${color}80;"></div>
+            </div>
             <div class="seatsense-card-title">${p}</div>
             <div class="seatsense-card-subtitle">${getSubtitleForProfile(p)}</div>
         `;
-
+        
         card.onclick = () => {
-            currentProfile = PROFILES[p];
-            grid.querySelectorAll(".seatsense-card").forEach(c => c.classList.remove("active"));
-            card.classList.add("active");
-
-            clearHighlights(true);
-            highlightSeats();
-            updateResultUI();
+            if (activeProfileName === p) return;
+            activeProfileName = p;
+            currentRecommendationIndex = 0;
+            
+            // Update active state on UI
+            document.querySelectorAll(".seatsense-card").forEach(el => {
+                const ep = (el as HTMLElement).dataset.profile;
+                const ec = MODE_COLORS[ep!] || "#ffffff";
+                if (ep === activeProfileName) {
+                    el.classList.add("active");
+                    (el as HTMLElement).style.borderColor = ec;
+                } else {
+                    el.classList.remove("active");
+                    (el as HTMLElement).style.borderColor = `${ec}40`;
+                }
+            });
+            
+            updateResults();
         };
         grid.appendChild(card);
     });
@@ -508,10 +495,11 @@ function addToggleUI(screenType: string, isSupported: boolean) {
     const updateTickets = (newVal: number) => {
         if (newVal < 1 || newVal > 10) return;
         currentTicketCount = newVal;
+        currentRecommendationIndex = 0;
         document.getElementById("seatsense-ticket-count-text")!.innerText = `${currentTicketCount} Ticket${currentTicketCount > 1 ? 's' : ''}`;
         clearHighlights(true);
         highlightSeats();
-        updateResultUI();
+        updateResults();
     };
 
     minusBtn.onclick = () => updateTickets(currentTicketCount - 1);
@@ -525,16 +513,123 @@ function addToggleUI(screenType: string, isSupported: boolean) {
     ticketsSection.appendChild(tControls);
     body.appendChild(ticketsSection);
 
-    // Result Section
-    const resultSection = document.createElement("div");
-    resultSection.className = "seatsense-result";
-    resultSection.id = "seatsense-result-content";
-    body.appendChild(resultSection);
+    const resultsContainer = document.createElement("div");
+    resultsContainer.id = "seatsense-results-container";
+    body.appendChild(resultsContainer);
 
     container.appendChild(body);
     document.body.appendChild(container);
 
-    updateResultUI();
+    updateResults();
+}
+
+function updateResults(direction: 'left' | 'right' | 'none' = 'none') {
+    const resultsContainer = document.getElementById("seatsense-results-container");
+    if (!resultsContainer) return;
+
+    const parser = new PVRParser();
+    const seats = parser.parseSeats();
+    const availableSeats = seats.filter(s => s.available);
+    if (availableSeats.length === 0) {
+        resultsContainer.innerHTML = "";
+        return;
+    }
+
+    const profile = PROFILES[activeProfileName];
+    if (!profile) return;
+
+    const blocks = recommendSeats(availableSeats, profile, currentTicketCount).slice(0, 3);
+    if (blocks.length === 0) {
+        resultsContainer.innerHTML = "";
+        return;
+    }
+    
+    // Ensure index is within bounds
+    if (currentRecommendationIndex >= blocks.length) {
+        currentRecommendationIndex = 0;
+    }
+
+    const block = blocks[currentRecommendationIndex];
+    const index = currentRecommendationIndex;
+    
+    const score = block[0].score ? Math.round(Number(block[0].score)) : 0;
+    const rowStr = block[0].row;
+    const minCol = Math.min(...block.map(s => Number(s.seatNumber)));
+    const maxCol = Math.max(...block.map(s => Number(s.seatNumber)));
+    const seatsStr = block.length > 1 ? `${minCol}-${maxCol}` : `${minCol}`;
+    
+    const badgeText = index === 0 ? "1st Best" : index === 1 ? "2nd Best" : "3rd Best";
+    const animClass = direction === 'left' ? 'seatsense-slide-left' : direction === 'right' ? 'seatsense-slide-right' : '';
+    
+    const resultHtml = `
+        <div class="seatsense-result ${animClass}" style="margin-bottom: 0;">
+            <div class="seatsense-result-header">
+                <div class="seatsense-result-seats">
+                    <h3>Row ${rowStr}</h3>
+                    <p>Seats ${seatsStr}</p>
+                </div>
+                <div class="seatsense-result-score">
+                    <div class="seatsense-score-badge">${badgeText}</div>
+                    <div class="seatsense-score-value">${score}%</div>
+                    <div class="seatsense-score-label">Confidence Match</div>
+                </div>
+            </div>
+            <div class="seatsense-progress-bg">
+                <div class="seatsense-progress-fill" style="width: ${score}%;"></div>
+            </div>
+        </div>
+    `;
+    resultsContainer.innerHTML = resultHtml;
+
+    if (blocks.length > 1) {
+        const arrowContainer = document.createElement("div");
+        arrowContainer.style.display = "flex";
+        arrowContainer.style.justifyContent = "center";
+        arrowContainer.style.gap = "16px";
+        arrowContainer.style.marginTop = "8px";
+        
+        const createArrow = (isLeft: boolean) => {
+            const btn = document.createElement("button");
+            btn.style.background = "none";
+            btn.style.border = "none";
+            btn.style.color = "#9ca3af";
+            btn.style.cursor = "pointer";
+            btn.style.padding = "4px";
+            btn.style.transition = "color 0.2s ease, transform 0.2s ease";
+            btn.innerHTML = isLeft ? `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            ` : `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            `;
+            
+            btn.onmouseover = () => {
+                btn.style.color = "#ffffff";
+                btn.style.transform = isLeft ? "translateX(-2px)" : "translateX(2px)";
+            };
+            btn.onmouseout = () => {
+                btn.style.color = "#9ca3af";
+                btn.style.transform = "translateX(0)";
+            };
+            btn.onclick = () => {
+                if (isLeft) {
+                    currentRecommendationIndex = (currentRecommendationIndex - 1 + blocks.length) % blocks.length;
+                    updateResults('left');
+                } else {
+                    currentRecommendationIndex = (currentRecommendationIndex + 1) % blocks.length;
+                    updateResults('right');
+                }
+            };
+            return btn;
+        };
+
+        arrowContainer.appendChild(createArrow(true));
+        arrowContainer.appendChild(createArrow(false));
+        resultsContainer.appendChild(arrowContainer);
+    }
 }
 
 function highlightSeats() {
@@ -556,23 +651,61 @@ function highlightSeats() {
     // Only recommend from available seats
     const availableSeats = seats.filter(seat => seat.available);
 
-    // Get top 3 recommendations
-    const recommendedBlocks = recommendSeats(availableSeats, currentProfile, currentTicketCount).slice(0, 3);
+    clearHighlights(false);
 
-    // Save for popup
-    topRecommendations = recommendedBlocks.map(block => block.map(seat => ({
-        row: seat.row,
-        seatNumber: seat.seatNumber,
-        category: seat.category,
-        score: seat.score
-    })));
+    // Track all recommendations so we can handle overlaps
+    // seat element -> array of recommendation reasons
+    const seatRecs = new Map<HTMLElement, { mode: string, rank: number, color: string }[]>();
 
-    currentRecommendedBlocks = recommendedBlocks;
+    Object.keys(PROFILES).forEach(profileName => {
+        const profile = PROFILES[profileName];
+        const blocks = recommendSeats(availableSeats, profile, currentTicketCount).slice(0, 3);
+        const color = MODE_COLORS[profileName] || "#ffffff";
+        
+        blocks.forEach((block, index) => {
+            block.forEach(seat => {
+                if (seat.element) {
+                    if (!seatRecs.has(seat.element)) {
+                        seatRecs.set(seat.element, []);
+                    }
+                    seatRecs.get(seat.element)!.push({
+                        mode: profileName,
+                        rank: index + 1,
+                        color: color
+                    });
+                }
+            });
+        });
+    });
+
+    // Apply styles to all recommended seats
+    seatRecs.forEach((recs, element) => {
+        // If a seat satisfies multiple modes, we just use the first mode's color for the background
+        // The tooltip will show all of them.
+        const primaryColor = recs[0].color;
+        
+        element.style.backgroundColor = primaryColor;
+        element.style.color = "white";
+        element.style.border = `2px solid ${primaryColor}`;
+        element.style.boxShadow = "none";
+        element.style.zIndex = "10";
+        element.style.position = "relative";
+        
+        // Build tooltip HTML
+        const tooltipLines = recs.map(r => {
+            const rankStr = r.rank === 1 ? "1st Best" : r.rank === 2 ? "2nd Best" : "3rd Best";
+            return `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${r.color};margin-right:6px;"></span><strong>${rankStr}</strong> for ${r.mode}</div>`;
+        });
+        
+        element.setAttribute("data-seatsense-tooltip", tooltipLines.join(""));
+        element.addEventListener("mouseenter", showTooltip);
+        element.addEventListener("mouseleave", hideTooltip);
+        
+        currentlyHighlighted.push(element);
+    });
 
     highlighted = true;
-    currentResultIndex = 0;
     addToggleUI(screenType, true);
-    updateResultUI();
 }
 
 // Listen for messages from popup
